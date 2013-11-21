@@ -92,7 +92,7 @@ class RecorderClassUI(gtk.Box):
   
         logger.info("Creating Recording Area")
         gtk.Box.__init__(self)
-	builder = gtk.Builder()
+        builder = gtk.Builder()
         builder.add_from_file(get_ui_path('recorder.glade'))
        
         self.repo = context.get_repository()
@@ -411,6 +411,9 @@ class RecorderClassUI(gtk.Box):
             self.worker.ingest(self.mediapackage)
         elif self.conf.get_lower('ingest', code) == 'nightly':
             self.worker.ingest_nightly(self.mediapackage)
+
+        if self.conf.get_boolean("moniviestin", "send"):
+            self.worker.send_to_moniviestin(self.mediapackage)
 
         context.get_state().is_recording = False
         self.timer_thread_id = None

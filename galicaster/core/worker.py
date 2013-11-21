@@ -20,17 +20,23 @@ from datetime import datetime
 from galicaster.mediapackage import serializer
 from galicaster.mediapackage import mediapackage
 from galicaster.utils import sidebyside
+from galicaster.utils.send_to_moniviestin import send_to_moniviestin
+
 
 INGEST = 'Ingest'
 ZIPPING = 'Export to Zip'
 SBS = 'Side by Side'
+MONIVIESTIN = "Send Moniviestin"
 INGEST_CODE = 'ingest'
 ZIPPING_CODE = 'exporttozip'
 SBS_CODE = 'sidebyside'
+MONIVIESTIN_CODE = 'send-moniviestin'
 
-JOBS = { INGEST: INGEST_CODE, 
-         ZIPPING: ZIPPING_CODE, 
-         SBS:  SBS_CODE}
+JOBS = {INGEST: INGEST_CODE,
+        ZIPPING: ZIPPING_CODE,
+        SBS:  SBS_CODE,
+        MONIVIESTIN: MONIVIESTIN_CODE}
+
 
 class Worker(object):
 
@@ -59,7 +65,6 @@ class Worker(object):
         tmp_path -- temporal path (need if /tmp partition is small)
         """
 
-
         self.repo = repo
         self.mh_client = mh_client
         self.export_path = export_path or os.path.expanduser('~')
@@ -68,7 +73,7 @@ class Worker(object):
         self.sbs_layout = sbs_layout
         self.dispatcher = dispatcher
         self.logger = logger
-        
+
         for dir_path in (self.export_path, self.tmp_path):
             if not os.path.isdir(dir_path):
                 os.makedirs(dir_path)
@@ -83,7 +88,7 @@ class Worker(object):
 
     def get_all_job_types(self):
         nn = ' Nightly'
-        return [INGEST, ZIPPING, SBS, INGEST+nn, ZIPPING+nn, SBS+nn]
+        return [INGEST, ZIPPING, SBS, INGEST+nn, ZIPPING+nn, SBS+nn, MONIVIESTIN]
 
     def get_all_job_types_by_mp(self, mp):
         nn = ' Nightly'
@@ -105,7 +110,8 @@ class Worker(object):
         f_operation = {
             INGEST_CODE: self._ingest,
             ZIPPING_CODE: self._export_to_zip,
-            SBS_CODE: self._side_by_side}
+            SBS_CODE: self._side_by_side,
+            MONIVIESTIN_CODE: self._send_to_moniviestin}
         try:
             mp = self.repo[mp_id]
             f = f_operation[name]
@@ -118,7 +124,8 @@ class Worker(object):
         f_operation = {
             INGEST_CODE: self.ingest,
             ZIPPING_CODE: self.export_to_zip,
-            SBS_CODE: self.side_by_side}
+            SBS_CODE: self.side_by_side,
+            MONIVIESTIN_CODE: self.send_to_moniviestin}
         try:
             mp = self.repo[mp_id]
             f = f_operation[name]
@@ -147,6 +154,30 @@ class Worker(object):
         mp.setOpStatus('ingest',mediapackage.OP_PENDING)
         self.repo.update(mp)
         self.jobs.put((self._ingest, (mp,)))
+
+    def send_to_moniviestin(self, mp):
+        self.logger.info(
+            'Creating Send Moniviestin Job for MP %s' % mp.getIdentifier()
+        )
+        mp.setOpStatus(MONIVIESTIN_CODE, mediapackage.OP_PENDING)
+        self.repo.update(mp)
+        self.jobs.put((self._send_to_moniviestin, (mp,)))
+
+    def _send_to_moniviestin(self, mp):
+        self.logger.info("Running send moniviestin job for MP %s"
+                         % mp.getIdentifier())
+        mp.setOpStatus('send-moniviestin', mediapackage.OP_PROCESSING)
+        self.repo.update(mp)
+        send_to_moniviestin(
+            mp,
+            self.dispatcher,
+            self.logger,
+            self
+        )
+
+        mp.setOpStatus("send-moniviestin", mediapackage.OP_DONE)
+        self.repo.update(mp)
+        self.logger.info("Ran send")
 
     def _ingest(self, mp):
         if not self.mh_client:
@@ -279,14 +310,12 @@ class Worker(object):
         self.repo.update(mp)
         self.dispatcher.emit('refresh_row', mp.identifier)
 
-
     def cancel_nightly(self, mp, operation):
         mp.setOpStatus(operation,mediapackage.OP_IDLE)
         self.repo.update(mp)
         self.dispatcher.emit('refresh_row', mp.identifier)
     
-
-    def exec_nightly(self, sender=None): 
+    def exec_nightly(self, sender=None):
         self.logger.info('Executing nightly process')
         for mp in self.repo.values():
             for (op_name, op_status) in mp.operation.iteritems():
@@ -297,5 +326,5 @@ class Worker(object):
                         self.export_to_zip(mp)
                     elif op_name == SBS_CODE:
                         self.side_by_side(mp)
-                    
-        
+                    elif op.name == MONIVIESTIN_CODE:
+                        self.send_to_moniviestin(mp)
