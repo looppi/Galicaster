@@ -117,7 +117,7 @@ setup(
         'galicaster.utils',
         'galicaster.plugins',
         ],
-    requires=["pycurl", "icalendar"],
+    requires=["pycurl", "icalendar", "requests"],
 
     data_files=[
         ('/usr/bin', ['docs/autostart/galicaster']), # Shell launcher
